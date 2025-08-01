@@ -1,0 +1,186 @@
+---
+title: "AML Assignment 2"
+output: html_document
+date: "2023-05-31"
+---
+
+## Background: 
+The data set includes wines from 3 different cultivators.  The included attributes are the chemical breakdown of the wine samples.  I was drawn to this subject because I am an amiture beer brewer and snob, giving me some insight to the biological measures of wine.  Unrelated, this analysis will give me technical insight to a beverage that I criticise for being made from only one ingredient.  For documentation regarding the affects that these attributes have on the wine, see appendix.  
+## Hypothesis: 
+The assiciated variables based on chemical content and observational metrics (Flavanoids/Color).  I assume that the observable metrics will have a higher significance than the chemical breakdown of the wine samples.  I assume this because these should be the first concerns of the wine QA is make sure that the wine looks & tastes consistant and manage the 'building blocks' that give it the particular flavor/color.  
+
+Installing the libraries of course: 
+```{r}
+library(caret)
+library(rpart)
+library(randomForest)
+library(mlr)
+library(xgboost)
+```
+
+## The data
+Loading the data into a 'wine' dataframe; seperating the data into train and test segments.  
+```{r}
+wine <- read.csv("wine.csv")
+colnames(wine) <- c("Cultivator","Alcohol", "MalicAcid","Ash","AlcalinityOfAsh","Magnesium","TotalPhenols","Flavanoids","NonflavanoidPhenols","Proanthocyanins","ColorIntensity","Hue","NOD280OD315OfDilutedWines","Proline")
+
+set.seed(64)
+partition <- createDataPartition(wine$Cultivator, p = .85, 
+                                  list = FALSE, 
+                                  times = 1)
+wine_train <- wine[partition,]
+wine_test <- wine[-partition,]
+```
+
+## Informal Tree analysis
+This gives us a quick peek at what the variables are doing.  This semi-validates my assumption about the observed metrics being the most significant.  As you can see, the second fold item is on flavoroids, against my assumption, color does not appear here, howeverNOD280 (The absorbtion of light appears to be a strong indicator).  
+Additionally, proline is a strongly significant variable in that it affects all tree senses of flavor: aroma, palet and texture.  
+Finally, the overall Maltic Acid(PH) appears to be a significant indicator, which is technically observable, that is a lower PH wine will taste more sour.  
+
+```{r}
+wine_tree <- rpart(Cultivator ~ ., data = wine_train, method = "class" )
+print(wine_tree)
+```
+## Formal Tree
+Now that I have gotten a brief analysis of the tree we will be building a superior model by tuning the hyperparameters 
+```{r}
+#For building the decision tree 
+d.tree.params <- makeClassifTask(
+  data=wine_train, 
+  target="Cultivator"
+)
+
+# Define Grid
+control_grid = makeTuneControlGrid()
+
+param_grid <- makeParamSet( 
+  makeDiscreteParam("maxdepth", values=20:50))
+
+# Define Cross Validation
+resample = makeResampleDesc("CV", iters = 3L)
+
+
+# Define Measure
+measure = acc
+
+dt_tuneparam <- tuneParams(learner="classif.rpart", 
+                           task=d.tree.params, 
+                           resampling = resample,
+                           measures = measure,
+                           par.set=param_grid, 
+                           control=control_grid, 
+                           show.info = TRUE)
+
+result_hyperparam <- generateHyperParsEffectData(dt_tuneparam, partial.dep = TRUE)
+best_parameters = setHyperPars(
+  makeLearner("classif.rpart"), 
+  par.vals = dt_tuneparam$x
+)
+
+d.tree.mlr.test <- makeClassifTask(
+  data=wine_test, 
+  target="Cultivator"
+)
+
+```
+
+
+
+## Random forest
+Like above, we took a quick peek before we build a substancial model.  It looks like all models create high quality, but it looks like the lowest error model is mty4.  
+```{r, include = FALSE}
+###Random Forest
+predictors <- wine_train[, -wine_train$Cultivator]
+wine_rf <-  randomForest(
+  formula = Cultivator ~ .,
+  data = wine_train
+)
+options(warn = -1) 
+control <- trainControl(method='repeatedcv', 
+                        number=10, 
+                        repeats=3)
+mtry <- 3
+rf_default <- caret::train(Cultivator ~ ., data=wine_train, method="rf", metric="RMSE", tuneGrid=expand.grid(.mtry=mtry), trControl=control)
+print(rf_default)
+
+```
+
+## XG Boost
+```{r}
+xgb_grid_1 <- expand.grid(
+  nrounds= 2400,
+  eta=c(0.01,0.001,0.0001),
+  lambda = 1,
+  alpha =0
+)
+
+xgb_trcontrol <- trainControl(
+  method="cv",
+  number = 5,
+  verboseIter = TRUE,
+  returnData=FALSE,
+  returnResamp = "all",
+  allowParallel = TRUE,
+  
+)
+
+xgb_train_1 <- caret::train(
+  x = wine_train[2:14],
+  y= wine_train$Cultivator,
+  trControl = xgb_trcontrol,
+  tuneGrid = xgb_grid_1,
+  method="xgbLinear"
+)
+#Results
+print(xgb_train_1)
+```
+
+
+
+
+## Testing
+As you can see, the tests are nearly spot on the xg boost.  I am curios if my data sample is not large enough.  
+```{r}
+
+#XG
+y_xg_pred <- round(predict(xgb_train_1,wine_test[2:14]))
+confusionMatrix(as.factor(y_xg_pred), as.factor(wine_test$Cultivator))
+
+
+#RF 
+rf_predict <- round(predict(rf_default, wine_test[2:14]))
+confusionMatrix(as.factor(rf_predict), as.factor(wine_test$Cultivator))
+
+
+
+
+```
+
+## Appendix
+Cultivator: This term typically refers to the person or entity responsible for growing and cultivating the grapes used to produce wine. It can also refer to the specific grape variety.
+
+Alcohol: Alcohol content is an important component of wine and is typically expressed as a percentage. It is produced through the fermentation process when yeast converts the sugars in grape juice into alcohol.
+
+Malic Acid: Malic acid is a type of organic acid found in grapes and wine. It contributes to the overall acidity and tartness of the wine. During the winemaking process, malic acid can undergo a conversion to softer-tasting lactic acid through a process called malolactic fermentation.
+
+Ash: Ash refers to the inorganic residue left behind after the complete combustion of organic matter. In wine analysis, ash content represents the mineral residue present in the wine, which includes various elements like potassium, calcium, magnesium, and others.
+
+Alkalinity of Ash: Alkalinity of ash measures the basicity or acidity of the inorganic components found in wine ash. It is typically expressed in milliequivalents per liter (mEq/L) and can provide insights into the buffering capacity of the wine.
+
+Magnesium: Magnesium is a mineral element that can be found in grapes and subsequently in wine. Its presence can influence the wine's sensory characteristics and may contribute to its overall flavor and mouthfeel.
+
+Total Phenols: Total phenols represent the sum of all phenolic compounds present in wine, including flavonoids, tannins, and other compounds. These compounds contribute to the color, flavor, and antioxidant properties of the wine.
+
+Flavanoids: Flavanoids are a subgroup of phenolic compounds found in wine. They are responsible for the wine's color, bitterness, and astringency. Examples of flavonoids include catechins, anthocyanins, and flavonols.
+
+Nonflavanoid Phenols: Nonflavanoid phenols are another subgroup of phenolic compounds found in wine. They include compounds such as resveratrol and hydroxycinnamic acids. These compounds contribute to the wine's sensory attributes and also possess potential health benefits.
+
+Proanthocyanins: Proanthocyanins are a specific type of flavonoid found in red wines. They contribute to the wine's color, mouthfeel, and astringency. Proanthocyanins are polymerized flavonoids that can form complex structures known as tannins.
+
+Color Intensity: Color intensity refers to the depth and concentration of color in a wine, particularly in red wines. It is influenced by the presence of anthocyanins, which are responsible for the red, purple, or blue hues in the wine.
+
+Hue: Hue is a visual descriptor of the color of wine and is typically expressed in degrees. It refers to the dominant color observed when looking at the wine, such as red, purple, or yellow.
+
+NOD280/OD315 of Diluted Wines: NOD280/OD315 is a ratio used to measure the absorbance of light at specific wavelengths (280 nm and 315 nm) in diluted wine samples. This ratio can provide information about the protein content and stability of the wine.
+
+Proline: Proline is an amino acid found in grapes and subsequently in wine. It can contribute to the wine's taste and mouthfeel. Proline levels in wine can vary depending on grape variety, ripeness, and winemaking techniques.
