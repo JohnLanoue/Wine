@@ -1,0 +1,118 @@
+---
+title: "AML Assignment 3"
+output:
+  html_document:
+    df_print: paged
+---
+## Hypothesis: 
+A 10% change in data will not change the prediction accuracy more than 2% given the optimal management method.  
+## The data
+The issue with the data in this chapter is that there are not any missing data.  I will need to do a data removal in order to manage the missing data.  One tenths of all of the rows will be missing.  We will want to be very conservative on how much data we want to remove, hence our initial data lenght is 177.  Because I am synthetically 'dropping' the values at random we already know that we should be useing an MCAR approach because I know the CAUSE of the missing values.  In future missing data challenges, I would want to resort to social methods of learning the reasons for the cause of missing values, in order to 'correctly treat' the data.  
+
+I will not be exploring our time series measures for fixing the data.  It is possible that the data could be time related due to seasons/midseasons, but abslutely nothing in the data can confirm that.  I will then be limited to univariate methods of supplementing the values.  
+```{r}
+wine <- read.csv("wine.csv")
+library(caret)
+library(randomForest)
+library(zoo)
+colnames(wine) <- c("Cultivator","Alcohol", "MalicAcid","Ash","AlcalinityOfAsh","Magnesium","TotalPhenols","Flavanoids","NonflavanoidPhenols","Proanthocyanins","ColorIntensity","Hue","NOD280OD315OfDilutedWines","Proline")
+
+set.seed(64)
+partition <- createDataPartition(wine$Cultivator, p = .85, 
+                                  list = FALSE, 
+                                  times = 1)
+wine_train <- wine[partition,]
+wine_test <- wine[-partition,]
+
+wine2 <- lapply(names(wine_train), function(col) {
+  x <- wine_train[[col]]
+  if (col != "Cultivator") {
+    x[sample(seq_along(x), length(x) / 10)] <- NA
+  }
+  x
+})
+
+# Recombine the list into a data.frame
+wine2 <- as.data.frame(wine2)
+colnames(wine2) <- colnames(wine_train)
+```
+##Analysis of missing values
+IF you take a look at the data, you would see that the Cultivators are arranged sequentially.  This works to our advantage hence we can really bet on some of the values being there.  If you look at the old copy, you would slee that Cultivator 2 is the largest group. The remaining categories are not so lucky and we will have to use more sensicle approaches.  
+```{R}
+
+wine2
+
+
+```
+
+
+## CULTIVATOR
+As mentioned earlier, the cultivator value is luckilly ordered and can be imputed with the value above: 
+```{r}
+wine2$Cultivator <- na.locf(wine2$Cultivator)
+```
+Hence I am unaware that any of the data is built in time fassion, I am careful to use a time series approach.  However, I can assume that thee values will be different from different cultivators.
+
+
+
+
+## Filling missing values 
+### Informative missing(Mean)
+```{r}
+wine.mean.imputed <- as.data.frame(wine2)
+for(i in 1:ncol(wine.mean.imputed)) {
+  wine.mean.imputed[ , i][is.na(wine.mean.imputed[ , i])] <- mean(wine.mean.imputed[ , i], na.rm=TRUE)
+}
+```
+
+We are going to try using an informative missing approach here 
+
+## RF impute
+```{r}
+wine.rough.imputed <- na.roughfix(Cultivator ~., wine2)
+wine.rf.imputed <- rfImpute(Cultivator ~., wine2)
+```
+
+## Analysis
+Now we are going to review the performance of the two dataframes.  I suspect that the RF fill will have better performance.  I will want to watch for overfitting particulary with the RF.
+
+Below are some helper functions to run the models so we can cross validate the methods. 
+```{r}
+xgboost <- function(train_data){
+  
+  xgb_grid_1 <- expand.grid(
+    nrounds= 2400,
+    eta=c(0.01,0.001,0.0001),
+    lambda = 1,
+    alpha =0
+  )
+  
+  xgb_trcontrol <- trainControl(
+    method="cv",
+    number = 5,
+    verboseIter = TRUE,
+    returnData=FALSE,
+    returnResamp = "all",
+    allowParallel = TRUE,
+    
+  )
+  
+  xgb_train_1 <- caret::train(
+    x = train_data[2:14],
+    y= train_data$Cultivator,
+    trControl = xgb_trcontrol,
+    tuneGrid = xgb_grid_1,
+    method="xgbLinear"
+  )
+  #XG
+  y_xg_pred <- round(predict(xgb_train_1,wine_test[2:14]))
+  confusionMatrix(as.factor(y_xg_pred), as.factor(wine_test$Cultivator))
+}
+```
+## XG Results
+It appears that both methods are both something spectacular and an anomoly.  All methods have nearly 92.5% accuracy,  similar to the unadulterated wine train data.  For this approach I would be tempted to stick with the classic imputed mean generation hence the sample size is relatively small and there is less suspected bias.  I am skeptical when a generated data set has better performance than the true dataset. 
+```{r}
+xgboost(train_data = wine.rf.imputed)
+xgboost(train_data = wine.mean.imputed)
+xgboost(train_data = wine_train)
+```
