@@ -1,0 +1,79 @@
+---
+title: "Applied Machine Learning Assigmnent 4"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+## The data
+I will continue to be working with the same dataset as I have been as in the last few lessons.  In order to get the hang of clustering, I will be reducing the variables to what I imagine to be similar fields Ash and Malic_Acid.  In wine, Malic acid and Ash are both imperfections in the grape that create distinct flavors (instead of simply producing fructose that ferments into ethonal).  Malic acid can create a lot of valuable flavors (or a sour/acidic flavor if harvested/fermented prematurely).  Ash can have a major effect on the Malic acid, hence it allows for more water to be heald in the grape and can support a lower level of ph(more acidic).
+
+```{r}
+library(caret)
+wine <- read.csv("wine.csv")
+colnames(wine) <- c("Cultivator","Alcohol", "MalicAcid","Ash","AlcalinityOfAsh","Magnesium","TotalPhenols","Flavanoids","NonflavanoidPhenols","Proanthocyanins","ColorIntensity","Hue","NOD280OD315OfDilutedWines","Proline")
+
+set.seed(64)
+partition <- createDataPartition(wine$Cultivator, p = .85, 
+                                  list = FALSE, 
+                                  times = 1)
+wine_train <- wine[partition,]
+wine_test <- wine[-partition,]
+wine_train_dim2 <- wine_train[3:4]
+```
+
+
+
+## Raw plot
+Before we build anything, we need to first plot the data and give ourselves an intuitive view of the data.  This might not be the best practice, but for starters, it is optimal.  As you can see we have a major skew of data towards the left side of between 0 and 1.  The remaining data appears to float along.  
+```{r}
+plot(wine_train_dim2)
+
+```
+
+
+
+## DBSCAN
+Admitadly, I conducted my DBSCAN with a series of manual tests.  I used my eyes to judge if a model was good.  In the future, I can write a loop that outputs the highest Silhouette score, while I 'browse'/test the parameters.   
+```{r}
+library(dbscan)
+dbscan <- dbscan(wine_train_dim2, eps = .2, minPts = 3)
+dbscan
+dbscan$cluster
+
+```
+
+
+As you can see from above, there are 5 main clusters in the datamodel.  The first and most obvious (and intuitive) is the supercluster on the left that contains half of the data.  As we move rightish we observe the remaining clusters that distinguish the highlighted outliars.  
+## PLOT 
+```{r}
+plot(wine_train_dim2, main= "DBSCAN", col = dbscan$cluster)
+
+```
+## hclust
+Below, I came across the same process where I reviewed all of the models manually, and was able to judge the best model to my own eyes.  It appears that the main difference between the two models is that there seems to be a major distinction between horizontal clustering and vertical clustering.  You will see that hclust is most intersted in building out that cetner 'chunk' with minor chunks on the side.  In this example, we may want to look instead at a linear regression.  
+```{r}
+library(stats)
+# Compute the distance matrix
+dist_matrix <- dist(wine_train_dim2)
+
+# Perform hierarchical clustering
+hc <- hclust(dist_matrix)
+cut_hc <- cutree(hc, k = 3)
+
+plot(wine_train_dim2)
+rect.hclust(hc , k = 2, border = 2:6)
+rect.hclust(hc , k = 3, border = 2:6)
+rect.hclust(hc , k = 4, border = 2:6)
+rect.hclust(hc , k = 5, border = 2:6)
+rect.hclust(hc , k = 6, border = 2:6)
+rect.hclust(hc , k = 7, border = 2:6)
+abline(h = 5, col = 'red')
+
+
+#ggplot(cut_hc, aes(x=area, y = perimeter, color = factor(cluster))) + geom_point()
+#seeds_df_cl <- mutate(wine, cluster = hc)
+```
+
