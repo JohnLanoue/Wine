@@ -1,7 +1,11 @@
 Here you will see some of the most advanced ML methods in my portfolio.  All RMD/R files work with the wine.csv file in the directory.  All .R and .Rmd files are identical except for the comments have been removed.  
+
 Included:
+
   Advanced Data Imputation: I synthesize missing data and use some advanced informative missing methods to prove that I will not shift my variation in test by 2%.  
+  
   Clustering with DBSCAN: I use clusting to predict the cultivator that created the wine based on the the attributes.
+  
   Tree:Forest:XG: Similar to the DBSCAN project above, I increment the complexity of a Decision Tree -> Random Forest-> XGBoost
 
 
